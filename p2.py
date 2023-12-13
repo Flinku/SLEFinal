@@ -12,7 +12,8 @@ mu_c = 0.0005
 mu_p = 0.000002
 
 # Simulation constants
-dt = 0.01
+dt = 0.02
+thresh = 0.01
 
 # Current state vars
 theta = 0
@@ -20,11 +21,17 @@ x = 0
 thetadot = 0
 xdot = 0
 
-# Possible States
-thetaStates = [-12, -6, -1, 0, 1, 6, 12]
-xStates = [-2.4, -0.8, 0, 0.8, 2.4]
-thetadotStates = [-50, 0, 50]
-xdotStates = [-0.5, 0, 0.5]
+# Lists of state ranges
+thetaStates = [[-12, -6], [-6, -1], [-1, 0], [0, 1], [1, 6], [6, 12]]
+xStates = [[-2.4, -0.8], [-0.8, 0.8], [0.8, 2.4]]
+thetadotStates = [[-10000000, -50], [-50, 50], [50, 10000000]]
+xdotStates = [[-1000000, -0.5], [-0.5, 0.5], [0.5, 1000000]]
+
+# List of range IDs that correspond to state range
+thetaIDs = range(len(thetaStates))
+xIDs = range(len(xStates))
+thetadotIDs = range(len(thetadotStates))
+xdotIDs = range(len(xdotStates))
 
 
 # Sign function
@@ -77,6 +84,9 @@ def nextState(theta, thetadot, x, xdot, force):
     newState[3] = xdot + dt*xAccel
 
     return newState
+
+
+# VALUE ITERATION
 
 
 
