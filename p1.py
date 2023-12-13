@@ -134,9 +134,9 @@ print(f"ANN: First Layer={bestL1}, Second Layer={bestL2}\tAccuracy={finAcc}")
 if ridgeScore > logitScore and ridgeScore > finAcc:
     print("Linear Regression is the best model here")
 elif logitScore > ridgeScore and logitScore > finAcc:
-    print("Linear Regression is the best model here")
+    print("Logistic Regression is the best model here")
 elif finAcc > ridgeScore and finAcc > logitScore:
-    print("Linear Regression is the best model here")
+    print("Artificial Neural Network is the best model here")
 else:
     print("There was a tie")
 
