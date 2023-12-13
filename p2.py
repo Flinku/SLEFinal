@@ -1,6 +1,8 @@
 import gym
 import pandas
 import math
+import numpy as np
+import copy
 import matplotlib.pyplot as plt
 
 # System constants
@@ -22,12 +24,12 @@ thetadot = 0
 xdot = 0
 
 # Lists of state ranges
-thetaStates = [[-12, -6], [-6, -1], [-1, 0], [0, 1], [1, 6], [6, 12]]
-xStates = [[-2.4, -0.8], [-0.8, 0.8], [0.8, 2.4]]
-thetadotStates = [[-10000000, -50], [-50, 50], [50, 10000000]]
-xdotStates = [[-1000000, -0.5], [-0.5, 0.5], [0.5, 1000000]]
+thetaStates = [["Terminal", "Terminal"], [-12, -6], [-6, -1], [-1, 0], [0, 1], [1, 6], [6, 12]]
+xStates = [["Terminal", "Terminal"], [-2.4, -0.8], [-0.8, 0.8], [0.8, 2.4]]
+thetadotStates = [[-10000000000, -50], [-50, 50], [50, 10000000000]]
+xdotStates = [[-1000000000, -0.5], [-0.5, 0.5], [0.5, 1000000000]]
 
-# List of range IDs that correspond to state range
+# List of range IDs that correspond to state range. 0 represents terminal for theta and x states
 thetaIDs = range(len(thetaStates))
 xIDs = range(len(xStates))
 thetadotIDs = range(len(thetadotStates))
@@ -71,7 +73,7 @@ def calcXDD(theta_deg, thetadot_deg, thetadd_deg, xdot, force):
     return xdd
 
 
-# Takes a given state (thetas/x's) and action (force), and outputs a new state
+# Takes a given state (thetas and x's) and action (force), and outputs a new state
 # Output is list of [theta, theta_dot, x, x_dot]
 def nextState(theta, thetadot, x, xdot, force):
     angAccel = calcThetaDD(theta_deg=theta, thetadot_deg=thetadot, xdot=xdot, force=force)
@@ -86,7 +88,100 @@ def nextState(theta, thetadot, x, xdot, force):
     return newState
 
 
+# Checks if val is within bounds, a 2-element list
+def between(val, bounds):
+    if len(bounds) != 2:
+        raise Exception("Bounds should be a 2-element list")
+    elif bounds[0] <= val < bounds[1]:
+        return True
+    else:
+        return False
+
+
+# Given a state list, outputs the IDs
+def genStateIDs(state):
+    # Initalizes ids to zero, so if x/theta aren't within an existing range then we know they're in a
+    # terminal state, and we don't need to change anything
+    idList = [0, 0, 0, 0]
+    for i in range(1, len(thetaStates)):
+        if between(state[0], thetaStates[i]):
+            idList[0] = i
+            break
+
+    for i in range(len(thetadotStates)):
+        if between(state[0], thetadotStates[i]):
+            idList[1] = i
+            break
+
+    for i in range(1, len(xStates)):
+        if between(state[0], xStates[i]):
+            idList[2] = i
+            break
+
+    for i in range(len(xdotStates)):
+        if between(state[0], xdotStates[i]):
+            idList[3] = i
+            break
+
+    return idList
+
+
+def genIncrements(bounds, steps):
+    start = bounds[0]
+    stop = bounds[1]
+    terms = np.linspace(start, stop, steps, endpoint=False)
+    return terms.tolist()
+
+
+# Given a certain state, outputs the probability of moving into the next state given an action
+# Action should be either 10 or -10, corresponding to the force
+# Assumes all possible configurations within state boxes are equally likely
+# Assumes that first and last states for velocity terms are terminal, as the average of any state that
+# includes infinity will terminate in the next time step
+def stateProbs(stateIDs, action):
+    # Makes sure it's not trying to run probability on a terminal point
+    if stateIDs[2] == 0 or stateIDs[0] == 0 or stateIDs[1] in [0, 2] or stateIDs[3] in [0, 2]:
+        return [0, 0, 0, 0]
+    possibleStates = [[0], [0], [0], [0]]
+    possibleStates[0] = genIncrements(thetaStates[stateIDs[0]], 20)
+    possibleStates[1] = genIncrements(thetadotStates[stateIDs[1]], 20)
+    possibleStates[2] = genIncrements(thetaStates[stateIDs[2]], 20)
+    possibleStates[3] = genIncrements(thetaStates[stateIDs[3]], 20)
+
+    numPointsTested = len(possibleStates[0]) * len(possibleStates[1]) * len(possibleStates[2]) * len(possibleStates[3])
+    print(numPointsTested)
+    # Builds a 4-D matrix that shows probability of any state occuring given the action
+    xdotBuild = [0, 0, 0]
+    xBuild = [copy.deepcopy(xdotBuild), copy.deepcopy(xdotBuild), copy.deepcopy(xdotBuild), copy.deepcopy(xdotBuild)]
+    thetadotBuild = [copy.deepcopy(xBuild), copy.deepcopy(xBuild), copy.deepcopy(xBuild)]
+
+    probMatrix = [copy.deepcopy(thetadotBuild), copy.deepcopy(thetadotBuild), copy.deepcopy(thetadotBuild), copy.deepcopy(thetadotBuild),
+                  copy.deepcopy(thetadotBuild), copy.deepcopy(thetadotBuild), copy.deepcopy(thetadotBuild)]
+    # Iterates through possible xdots
+    for i in range(len(possibleStates[3])):
+        # possible x's
+        for j in range(len(possibleStates[2])):
+            # possible theta dots
+            for k in range(len(possibleStates[1])):
+                # possible thetas
+                for l in range(len(possibleStates[0])):
+                    nState = nextState(possibleStates[0][l], possibleStates[1][k], possibleStates[2][j],
+                                       possibleStates[3][i], action)
+                    nStateID = genStateIDs(nState)
+                    probMatrix[nStateID[0]][nStateID[1]][nStateID[2]][nStateID[3]] += 1
+
+    return probMatrix
+
+
+testProb = stateProbs([3, 1, 3, 1], 10)
+print(testProb)
+
+
+
+
+
 # VALUE ITERATION
+
 
 
 
