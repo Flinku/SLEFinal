@@ -15,7 +15,7 @@ mu_p = 0.000002
 
 # Simulation constants
 dt = 0.02
-thresh = 0.1
+thresh = 0.00001
 
 # Current state vars
 theta = 0
@@ -25,14 +25,14 @@ xdot = 0
 
 # Lists of state ranges
 thetaStates = [["Terminal", "Terminal"], [-12, -6], [-6, -1], [-1, 0], [0, 1], [1, 6], [6, 12]]
-xStates = [["Terminal", "Terminal"], [-2.4, -0.8], [-0.8, 0.8], [0.8, 2.4]]
 thetadotStates = [[-10000000000, -50], [-50, 0], [0, 50], [50, 10000000000]]
+xStates = [["Terminal", "Terminal"], [-2.4, -0.8], [-0.8, 0.8], [0.8, 2.4]]
 xdotStates = [[-1000000000, -0.5], [-0.5, 0], [0, 0.5], [0.5, 1000000000]]
 
 # List of range IDs that correspond to state range. 0 represents terminal for theta and x states
 thetaIDs = range(len(thetaStates))
-xIDs = range(len(xStates))
 thetadotIDs = range(len(thetadotStates))
+xIDs = range(len(xStates))
 xdotIDs = range(len(xdotStates))
 
 
@@ -67,7 +67,7 @@ def calcXDD(theta_deg, thetadot_deg, thetadd_deg, xdot, force):
     thetadot_rad = math.radians(thetadot_deg)
     thetadd_rad = math.radians(thetadd_deg)
 
-    paren = (thetadot_rad ** 2) * math.sin(theta_rad) - thetadd_rad * math.cos(theta_rad)
+    paren = (thetadot_rad * thetadot_rad) * math.sin(theta_rad) - thetadd_rad * math.cos(theta_rad)
     numer = force + m * length * paren - mu_c * sgn(xdot)
     xdd = numer / (M + m)
     return xdd
@@ -109,17 +109,17 @@ def genStateIDs(state):
             break
 
     for i in range(len(thetadotStates)):
-        if between(state[0], thetadotStates[i]):
+        if between(state[1], thetadotStates[i]):
             idList[1] = i
             break
 
     for i in range(1, len(xStates)):
-        if between(state[0], xStates[i]):
+        if between(state[2], xStates[i]):
             idList[2] = i
             break
 
     for i in range(len(xdotStates)):
-        if between(state[0], xdotStates[i]):
+        if between(state[3], xdotStates[i]):
             idList[3] = i
             break
 
@@ -156,10 +156,10 @@ def stateProbs(stateIDs, action):
         return None
     possibleStates = [[0], [0], [0], [0]]
     # Populates lists with all the incremental values tested
-    possibleStates[0] = genIncrements(thetaStates[stateIDs[0]], 20)
-    possibleStates[1] = genIncrements(thetadotStates[stateIDs[1]], 20)
-    possibleStates[2] = genIncrements(thetaStates[stateIDs[2]], 20)
-    possibleStates[3] = genIncrements(thetaStates[stateIDs[3]], 20)
+    possibleStates[0] = genIncrements(thetaStates[stateIDs[0]], 5)
+    possibleStates[1] = genIncrements(thetadotStates[stateIDs[1]], 5)
+    possibleStates[2] = genIncrements(xStates[stateIDs[2]], 5)
+    possibleStates[3] = genIncrements(xdotStates[stateIDs[3]], 5)
 
     numPointsTested = len(possibleStates[0]) * len(possibleStates[1]) * len(possibleStates[2]) * len(possibleStates[3])
     # Builds a 4-D matrix that shows probability of any state occuring given the action
@@ -179,7 +179,6 @@ def stateProbs(stateIDs, action):
                     nStateID = genStateIDs(nState)
                     # Adds a point to that specific end state in the probability matrix
                     probMatrix[nStateID[0]][nStateID[1]][nStateID[2]][nStateID[3]] += 1 / numPointsTested
-
     return probMatrix
 
 
@@ -201,7 +200,7 @@ def getValSum(probMatrix, Vs, discount=1):
         for j in range(len(probMatrix[i])):
             for k in range(len(probMatrix[i][j])):
                 for l in range(len(probMatrix[i][j][k])):
-                    valSum += probMatrix[i][j][k][l] * (getReward([i, j, k, l]) + discount * Vs[i][j][k][l])
+                    valSum += probMatrix[i][j][k][l] * (getReward([i, j, k, l]) + (discount * Vs[i][j][k][l]))
 
     return valSum
 
@@ -213,11 +212,11 @@ def iterValue(vs_old):
 
     # Iterates over every possible state
     # xdots
-    for i in xdotIDs[1:2]:
+    for i in xdotIDs[1:3]:
         # xs
         for j in xIDs[1:]:
             # theta dots
-            for k in thetadotIDs[1:2]:
+            for k in thetadotIDs[1:3]:
                 # thetas
                 for l in thetaIDs[1:]:
                     # print(f"{l}, {k}, {j}, {i}")
@@ -241,13 +240,43 @@ def iterValue(vs_old):
 
 V_s = gen4darray()
 
-print(V_s)
+
+# Removes all non-terminal states from Vs array for easier viewing
+def trimV(Vs):
+    trimmed = copy.deepcopy(Vs)
+    for i in range(len(Vs)):
+        for j in range(len(Vs[i])):
+            for k in range(len(Vs[i][j])):
+                del trimmed[i][j][k][3]
+                del trimmed[i][j][k][0]
+            del trimmed[i][j][0]
+        del trimmed[i][3]
+        del trimmed[i][0]
+    del trimmed[0]
+
+    return trimmed
+
+
+
+
 delta = 1
 counter = 0
-while delta > thresh or counter < 10:
+
+while delta > thresh and counter < 10:
     V_s, delta = iterValue(V_s)
     counter += 1
     print(f"Iteration {counter}, delta={delta}")
 print(f"After {counter} iterations, reached a delta of {delta}")
-print(V_s)
 
+
+def getVelocValue(thetaVelID, xVelID, V_s):
+    valueMap = np.array([[V_s[6][thetaVelID][1][xVelID], V_s[6][thetaVelID][2][xVelID], V_s[6][thetaVelID][3][xVelID]],
+                         [V_s[5][thetaVelID][1][xVelID], V_s[5][thetaVelID][2][xVelID], V_s[5][thetaVelID][3][xVelID]],
+                         [V_s[4][thetaVelID][1][xVelID], V_s[4][thetaVelID][2][xVelID], V_s[4][thetaVelID][3][xVelID]],
+                         [V_s[3][thetaVelID][1][xVelID], V_s[3][thetaVelID][2][xVelID], V_s[3][thetaVelID][3][xVelID]],
+                         [V_s[2][thetaVelID][1][xVelID], V_s[2][thetaVelID][2][xVelID], V_s[2][thetaVelID][3][xVelID]],
+                         [V_s[1][thetaVelID][1][xVelID], V_s[1][thetaVelID][2][xVelID], V_s[1][thetaVelID][3][xVelID]]])
+    print(valueMap)
+
+
+getVelocValue(2, 2, V_s)
