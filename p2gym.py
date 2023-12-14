@@ -1,6 +1,7 @@
 import numpy as np
 import gym
 import time
+import statistics
 import matplotlib.pyplot as plt
 
 env = gym.make('CartPole-v1', render_mode=None) #render_mode='human'
@@ -34,7 +35,26 @@ def discretize_state(state):
     
     return theta_bin, x_bin, theta_dot_bin, x_dot_bin
 
+def render_current_best():
+    env = gym.make('CartPole-v1', render_mode='human') #render_mode='human'
+    s, info = env.reset()
+    if info: print(info)
+    done = False
+    count = 0
+    while not done:
+        count+=1
+        discrete_s = discretize_state(s) # discretize s
+        a = np.argmax(Q[discrete_s]) # choose action w highest q value
+        sp, reward, done, truncated, info = env.step(a)
+        if info: print(info)
+        s = sp
+    env = gym.make('CartPole-v1', render_mode=None) #render_mode='human'
+
+
 prev_count = []  # array of all scores over runs
+prev_reward = []
+cum_reward = []
+
 for iteration in range(n_iter):
     s, info = env.reset()
     if info: print(info)
@@ -55,15 +75,17 @@ for iteration in range(n_iter):
             
         # Reward is −1 for the failure, and 0 otherwise, with discounting
         if done: 
-            reward = -1 
+            reward = -1
         else: 
-            reward = 0 
+            reward = 0
+            # AM I DISCOUNTING RIGHT???
+        prev_reward.append(reward)
 
         # discretize next state and current state
         discrete_sp = discretize_state(sp)
         discrete_s = discretize_state(s)
 
-        # update q w bellman
+        # update q w bellman   
         Q[discrete_s + (a,)] = learning_rate * Q[discrete_s + (a,)] + (
             1 - learning_rate) * (
                 reward + discount_rate * np.max(Q[discrete_sp])
@@ -71,16 +93,25 @@ for iteration in range(n_iter):
         s = sp #move to next state
         
     prev_count.append(count)
-    print('count:', count)
     
     # decay stuffs
     eps *= eps_decay_rate
     learning_rate = learning_rate / (1 + iteration * learning_rate_decay)
-    print('iteration:', iteration)
     
-env = gym.make('CartPole-v1', render_mode='human') #render_mode='human'
-s, info = env.reset()
-env.render()
-discrete_s = discretize_state(s) # discretize s
-a = np.argmax(Q[discrete_s]) # choose action w highest q value
-sp, reward, done, truncated, info = env.step(a)
+    if iteration % (n_iter/10) == 0: #disp and render 10 times
+        print('episode:', iteration, '(',100*iteration/n_iter,'% )')
+        render_current_best()
+    # if iteration % 10 == 0: #for plotting/metrics
+    #     tot_reward.append(statistics.fmean(prev_reward))
+    #     cum_reward.append(cum_reward[iteration/10] + sum(prev_reward))
+    #     prev_reward = []
+'''
+problem is “considered solved when the average reward is
+greater than or equal to 195.0 over 100 consecutive trials.
+'''
+    
+for _ in range(3): #three runs with best values
+    render_current_best()
+    time.sleep(.5)
+'''Plots of x and θ as functions of time for some successful episodes together 
+with number of time steps during which the pole does not fail'''
