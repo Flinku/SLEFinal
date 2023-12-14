@@ -4,6 +4,7 @@ import math
 import numpy as np
 import copy
 import matplotlib.pyplot as plt
+from matplotlib import colors
 
 # System constants
 M = 1
@@ -15,7 +16,12 @@ mu_p = 0.000002
 
 # Simulation constants
 dt = 0.02
-thresh = 0.00001
+# Max allowable delta to stop iterations
+thresh = 0.01
+# Max overall iterations
+iterLimit = 100
+# Number of evenly spaced splits to look at to determine probability of moving from one state to another
+probabilitySplits = 5
 
 # Current state vars
 theta = 0
@@ -126,10 +132,11 @@ def genStateIDs(state):
     return idList
 
 
+# Generates steps number of evenly spaced points within the range of bounds
 def genIncrements(bounds, steps):
     start = bounds[0]
     stop = bounds[1]
-    terms = np.linspace(start, stop, steps, endpoint=False)
+    terms = np.linspace(start, stop, steps)
     return terms.tolist()
 
 
@@ -150,17 +157,18 @@ def gen4darray():
 # Assumes that first and last states for velocity terms are terminal, as the average of any state that
 # includes infinity will terminate in the next time step
 def stateProbs(stateIDs, action):
-    # Makes sure it's not trying to run probability on a terminal point
+    # Makes sure its not trying to run probability on a terminal point
     if stateIDs[0] == 0 or stateIDs[1] in [0, 3] or stateIDs[2] == 0 or stateIDs[3] in [0, 3]:
         print(f"Returning none, {stateIDs} is invalid for probability")
         return None
     possibleStates = [[0], [0], [0], [0]]
     # Populates lists with all the incremental values tested
-    possibleStates[0] = genIncrements(thetaStates[stateIDs[0]], 5)
-    possibleStates[1] = genIncrements(thetadotStates[stateIDs[1]], 5)
-    possibleStates[2] = genIncrements(xStates[stateIDs[2]], 5)
-    possibleStates[3] = genIncrements(xdotStates[stateIDs[3]], 5)
+    possibleStates[0] = genIncrements(thetaStates[stateIDs[0]], probabilitySplits)
+    possibleStates[1] = genIncrements(thetadotStates[stateIDs[1]], probabilitySplits)
+    possibleStates[2] = genIncrements(xStates[stateIDs[2]], probabilitySplits)
+    possibleStates[3] = genIncrements(xdotStates[stateIDs[3]], probabilitySplits)
 
+    # Gets the overall number of points tested so it knows what to divide by to get the probability
     numPointsTested = len(possibleStates[0]) * len(possibleStates[1]) * len(possibleStates[2]) * len(possibleStates[3])
     # Builds a 4-D matrix that shows probability of any state occuring given the action
     probMatrix = gen4darray()
@@ -257,12 +265,10 @@ def trimV(Vs):
     return trimmed
 
 
-
-
 delta = 1
 counter = 0
 
-while delta > thresh and counter < 10:
+while delta > thresh and counter < 100:
     V_s, delta = iterValue(V_s)
     counter += 1
     print(f"Iteration {counter}, delta={delta}")
@@ -276,7 +282,24 @@ def getVelocValue(thetaVelID, xVelID, V_s):
                          [V_s[3][thetaVelID][1][xVelID], V_s[3][thetaVelID][2][xVelID], V_s[3][thetaVelID][3][xVelID]],
                          [V_s[2][thetaVelID][1][xVelID], V_s[2][thetaVelID][2][xVelID], V_s[2][thetaVelID][3][xVelID]],
                          [V_s[1][thetaVelID][1][xVelID], V_s[1][thetaVelID][2][xVelID], V_s[1][thetaVelID][3][xVelID]]])
-    print(valueMap)
+    return valueMap
 
 
-getVelocValue(2, 2, V_s)
+map1_1 = getVelocValue(1, 1, V_s)
+
+fig, ax = plt.subplots()
+
+graphX = np.array([-2.4, -0.8, 0.8, 2.4])
+graphY = np.array([-12, -6, -1, 0, 1, 6, 12])
+GX, GY = np.meshgrid(graphX, graphY)
+
+ax.set_xticks(graphX)
+ax.set_yticks(graphY)
+
+plt.pcolormesh(GX, GY, map1_1, edgecolors='black')
+plt.colorbar()
+plt.title("Value Function; -0.5 < x' < 0; -50 < theta' < 0")
+plt.figure()
+
+plt.show()
+#TODO: Finish plotting setup, add optimal policy tracking
