@@ -15,7 +15,7 @@ mu_p = 0.000002
 
 # Simulation constants
 dt = 0.02
-thresh = 0.01
+thresh = 0.1
 
 # Current state vars
 theta = 0
@@ -26,8 +26,8 @@ xdot = 0
 # Lists of state ranges
 thetaStates = [["Terminal", "Terminal"], [-12, -6], [-6, -1], [-1, 0], [0, 1], [1, 6], [6, 12]]
 xStates = [["Terminal", "Terminal"], [-2.4, -0.8], [-0.8, 0.8], [0.8, 2.4]]
-thetadotStates = [[-10000000000, -50], [-50, 50], [50, 10000000000]]
-xdotStates = [[-1000000000, -0.5], [-0.5, 0.5], [0.5, 1000000000]]
+thetadotStates = [[-10000000000, -50], [-50, 0], [0, 50], [50, 10000000000]]
+xdotStates = [[-1000000000, -0.5], [-0.5, 0], [0, 0.5], [0.5, 1000000000]]
 
 # List of range IDs that correspond to state range. 0 represents terminal for theta and x states
 thetaIDs = range(len(thetaStates))
@@ -51,12 +51,12 @@ def calcThetaDD(theta_deg, thetadot_deg, xdot, force):
     theta_rad = math.radians(theta_deg)
     thetadot_rad = math.radians(thetadot_deg)
 
-    num1 = grav*math.sin(theta_rad) - (mu_p*thetadot_rad/(m*length))
-    num2sub1 = -force - (m*length * thetadot_rad*thetadot_rad * math.sin(theta_rad)) + mu_c*sgn(xdot)
+    num1 = grav * math.sin(theta_rad) - (mu_p * thetadot_rad / (m * length))
+    num2sub1 = -force - (m * length * thetadot_rad * thetadot_rad * math.sin(theta_rad)) + mu_c * sgn(xdot)
     num2sub2 = M + m
-    numer = num1 + math.cos(theta_rad)*(num2sub1/num2sub2)
-    denom = length * (4/3 - (m*(math.cos(theta_rad)*math.cos(theta_rad)))/(m+M))
-    thetadd = math.degrees(numer/denom)
+    numer = num1 + math.cos(theta_rad) * (num2sub1 / num2sub2)
+    denom = length * (4 / 3 - (m * (math.cos(theta_rad) * math.cos(theta_rad))) / (m + M))
+    thetadd = math.degrees(numer / denom)
 
     return thetadd
 
@@ -67,9 +67,9 @@ def calcXDD(theta_deg, thetadot_deg, thetadd_deg, xdot, force):
     thetadot_rad = math.radians(thetadot_deg)
     thetadd_rad = math.radians(thetadd_deg)
 
-    paren = (thetadot_rad**2) * math.sin(theta_rad) - thetadd_rad*math.cos(theta_rad)
-    numer = force + m*length*paren - mu_c*sgn(xdot)
-    xdd = numer/(M+m)
+    paren = (thetadot_rad ** 2) * math.sin(theta_rad) - thetadd_rad * math.cos(theta_rad)
+    numer = force + m * length * paren - mu_c * sgn(xdot)
+    xdd = numer / (M + m)
     return xdd
 
 
@@ -80,10 +80,10 @@ def nextState(theta, thetadot, x, xdot, force):
     xAccel = calcXDD(theta_deg=theta, thetadot_deg=thetadot, thetadd_deg=angAccel, xdot=xdot, force=force)
 
     newState = [0, 0, 0, 0]
-    newState[0] = theta + dt*thetadot
-    newState[1] = thetadot + dt*angAccel
-    newState[2] = x + dt*xdot
-    newState[3] = xdot + dt*xAccel
+    newState[0] = theta + dt * thetadot
+    newState[1] = thetadot + dt * angAccel
+    newState[2] = x + dt * xdot
+    newState[3] = xdot + dt * xAccel
 
     return newState
 
@@ -133,6 +133,17 @@ def genIncrements(bounds, steps):
     return terms.tolist()
 
 
+# Generates a 4d array, used for value function, policy, and probability matrix
+def gen4darray():
+    xdB = [0, 0, 0, 0]
+    xB = [copy.deepcopy(xdB), copy.deepcopy(xdB), copy.deepcopy(xdB), copy.deepcopy(xdB)]
+    tdB = [copy.deepcopy(xB), copy.deepcopy(xB), copy.deepcopy(xB), copy.deepcopy(xB)]
+    tB = [copy.deepcopy(tdB), copy.deepcopy(tdB), copy.deepcopy(tdB), copy.deepcopy(tdB), copy.deepcopy(tdB),
+          copy.deepcopy(tdB), copy.deepcopy(tdB)]
+
+    return tB
+
+
 # Given a certain state, outputs the probability of moving into the next state given an action
 # Action should be either 10 or -10, corresponding to the force
 # Assumes all possible configurations within state boxes are equally likely
@@ -140,23 +151,19 @@ def genIncrements(bounds, steps):
 # includes infinity will terminate in the next time step
 def stateProbs(stateIDs, action):
     # Makes sure it's not trying to run probability on a terminal point
-    if stateIDs[2] == 0 or stateIDs[0] == 0 or stateIDs[1] in [0, 2] or stateIDs[3] in [0, 2]:
-        return [0, 0, 0, 0]
+    if stateIDs[0] == 0 or stateIDs[1] in [0, 3] or stateIDs[2] == 0 or stateIDs[3] in [0, 3]:
+        print(f"Returning none, {stateIDs} is invalid for probability")
+        return None
     possibleStates = [[0], [0], [0], [0]]
+    # Populates lists with all the incremental values tested
     possibleStates[0] = genIncrements(thetaStates[stateIDs[0]], 20)
     possibleStates[1] = genIncrements(thetadotStates[stateIDs[1]], 20)
     possibleStates[2] = genIncrements(thetaStates[stateIDs[2]], 20)
     possibleStates[3] = genIncrements(thetaStates[stateIDs[3]], 20)
 
     numPointsTested = len(possibleStates[0]) * len(possibleStates[1]) * len(possibleStates[2]) * len(possibleStates[3])
-    print(numPointsTested)
     # Builds a 4-D matrix that shows probability of any state occuring given the action
-    xdotBuild = [0, 0, 0]
-    xBuild = [copy.deepcopy(xdotBuild), copy.deepcopy(xdotBuild), copy.deepcopy(xdotBuild), copy.deepcopy(xdotBuild)]
-    thetadotBuild = [copy.deepcopy(xBuild), copy.deepcopy(xBuild), copy.deepcopy(xBuild)]
-
-    probMatrix = [copy.deepcopy(thetadotBuild), copy.deepcopy(thetadotBuild), copy.deepcopy(thetadotBuild), copy.deepcopy(thetadotBuild),
-                  copy.deepcopy(thetadotBuild), copy.deepcopy(thetadotBuild), copy.deepcopy(thetadotBuild)]
+    probMatrix = gen4darray()
     # Iterates through possible xdots
     for i in range(len(possibleStates[3])):
         # possible x's
@@ -165,48 +172,82 @@ def stateProbs(stateIDs, action):
             for k in range(len(possibleStates[1])):
                 # possible thetas
                 for l in range(len(possibleStates[0])):
+                    # Calculates where it would end up given the exact state values being assumed
                     nState = nextState(possibleStates[0][l], possibleStates[1][k], possibleStates[2][j],
                                        possibleStates[3][i], action)
+                    # Figures out what state the resulting position belongs to
                     nStateID = genStateIDs(nState)
-                    probMatrix[nStateID[0]][nStateID[1]][nStateID[2]][nStateID[3]] += 1
+                    # Adds a point to that specific end state in the probability matrix
+                    probMatrix[nStateID[0]][nStateID[1]][nStateID[2]][nStateID[3]] += 1 / numPointsTested
 
     return probMatrix
 
 
-testProb = stateProbs([3, 1, 3, 1], 10)
-print(testProb)
+# Determines the reward given a set of state ids. While technically it hasn't necessarily failed if the velocities are
+# in the outer range, due to our assumption that the outer ranges include infinity it must fail on the next time step,
+# so we just consider those states terminal
+def getReward(stateIDs):
+    if stateIDs[0] == 0 or stateIDs[1] in [0, 3] or stateIDs[2] == 0 or stateIDs[3] in [0, 3]:
+        return 0
+    else:
+        return 1
 
 
+# Computes the sum of all probabilities * rewards given a probability matrix and previous value function
+def getValSum(probMatrix, Vs, discount=1):
+    valSum = 0
+
+    for i in range(len(probMatrix)):
+        for j in range(len(probMatrix[i])):
+            for k in range(len(probMatrix[i][j])):
+                for l in range(len(probMatrix[i][j][k])):
+                    valSum += probMatrix[i][j][k][l] * (getReward([i, j, k, l]) + discount * Vs[i][j][k][l])
+
+    return valSum
 
 
+# Takes a 4-D previous value policy array, and outputs a new one and the updated delta
+def iterValue(vs_old):
+    delta = 0
+    Vs = copy.deepcopy(vs_old)
 
-# VALUE ITERATION
+    # Iterates over every possible state
+    # xdots
+    for i in xdotIDs[1:2]:
+        # xs
+        for j in xIDs[1:]:
+            # theta dots
+            for k in thetadotIDs[1:2]:
+                # thetas
+                for l in thetaIDs[1:]:
+                    # print(f"{l}, {k}, {j}, {i}")
+                    # Saves the old value at this state to variable v
+                    v = Vs[l][k][j][i]
+
+                    # Computes the probability of ending up in all possible states given a forward or backward force
+                    forwardProb = stateProbs([l, k, j, i], 10)
+                    backwardProb = stateProbs([l, k, j, i], -10)
+
+                    # Gets the value sums
+                    forwardValSum = getValSum(forwardProb, Vs)
+                    backwardValSum = getValSum(backwardProb, Vs)
+
+                    newV = max(forwardValSum, backwardValSum)
+                    Vs[l][k][j][i] = newV
+                    delta = max(delta, abs(v - newV))
+
+    return Vs, delta
 
 
+V_s = gen4darray()
 
+print(V_s)
+delta = 1
+counter = 0
+while delta > thresh or counter < 10:
+    V_s, delta = iterValue(V_s)
+    counter += 1
+    print(f"Iteration {counter}, delta={delta}")
+print(f"After {counter} iterations, reached a delta of {delta}")
+print(V_s)
 
-"""
-env = gym.make('CartPole-v1', render_mode='human')
-
-
-def basic_policy(obs):
-    print(obs[0])
-    angle = obs[0][2]
-    return 0 if angle < 0 else 1
-
-
-totals = []
-for episode in range(500):
-    episode_rewards = 0
-    obs = env.reset()
-    for step in range(1000):
-        action = basic_policy(obs)
-        obs, reward, done, info = env.step(action)[0]
-        episode_rewards += reward
-        if done:
-            break
-
-    totals.append(episode_rewards)
-
-env.close()
-"""
