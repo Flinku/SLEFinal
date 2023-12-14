@@ -23,17 +23,11 @@ iterLimit = 100
 # Number of evenly spaced splits to look at to determine probability of moving from one state to another
 probabilitySplits = 5
 
-# Current state vars
-theta = 0
-x = 0
-thetadot = 0
-xdot = 0
-
 # Lists of state ranges
 thetaStates = [["Terminal", "Terminal"], [-12, -6], [-6, -1], [-1, 0], [0, 1], [1, 6], [6, 12]]
-thetadotStates = [[-10000000000, -50], [-50, 0], [0, 50], [50, 10000000000]]
+thetadotStates = [[-10000000000, -75], [-75, -25], [-25, 25], [25, 75], [75, 10000000000]]
 xStates = [["Terminal", "Terminal"], [-2.4, -0.8], [-0.8, 0.8], [0.8, 2.4]]
-xdotStates = [[-1000000000, -0.5], [-0.5, 0], [0, 0.5], [0.5, 1000000000]]
+xdotStates = [[-1000000000, -0.75], [-0.75, -0.25], [-0.25, 0.25], [0.25, 0.75], [0.75, 1000000000]]
 
 # List of range IDs that correspond to state range. 0 represents terminal for theta and x states
 thetaIDs = range(len(thetaStates))
@@ -86,10 +80,11 @@ def nextState(theta, thetadot, x, xdot, force):
     xAccel = calcXDD(theta_deg=theta, thetadot_deg=thetadot, thetadd_deg=angAccel, xdot=xdot, force=force)
 
     newState = [0, 0, 0, 0]
-    newState[0] = theta + dt * thetadot
+    # Doing it in this order is necessary, as otherwise acceleration has no impact on position within a time step
     newState[1] = thetadot + dt * angAccel
-    newState[2] = x + dt * xdot
+    newState[0] = theta + dt * newState[1]
     newState[3] = xdot + dt * xAccel
+    newState[2] = x + dt * newState[3]
 
     return newState
 
@@ -142,11 +137,16 @@ def genIncrements(bounds, steps):
 
 # Generates a 4d array, used for value function, policy, and probability matrix
 def gen4darray():
-    xdB = [0, 0, 0, 0]
-    xB = [copy.deepcopy(xdB), copy.deepcopy(xdB), copy.deepcopy(xdB), copy.deepcopy(xdB)]
-    tdB = [copy.deepcopy(xB), copy.deepcopy(xB), copy.deepcopy(xB), copy.deepcopy(xB)]
-    tB = [copy.deepcopy(tdB), copy.deepcopy(tdB), copy.deepcopy(tdB), copy.deepcopy(tdB), copy.deepcopy(tdB),
-          copy.deepcopy(tdB), copy.deepcopy(tdB)]
+    xdB = [0]*len(xdotStates)
+    xB = []
+    for i in xStates:
+        xB.append(copy.deepcopy(xdB))
+    tdB = []
+    for i in thetadotStates:
+        tdB.append(copy.deepcopy(xB))
+    tB = []
+    for i in thetaStates:
+        tB.append(copy.deepcopy(tdB))
 
     return tB
 
@@ -158,7 +158,7 @@ def gen4darray():
 # includes infinity will terminate in the next time step
 def stateProbs(stateIDs, action):
     # Makes sure its not trying to run probability on a terminal point
-    if stateIDs[0] == 0 or stateIDs[1] in [0, 3] or stateIDs[2] == 0 or stateIDs[3] in [0, 3]:
+    if stateIDs[0] == 0 or stateIDs[1] in [0, len(thetadotStates)-1] or stateIDs[2] == 0 or stateIDs[3] in [0, len(xdotStates)-1]:
         print(f"Returning none, {stateIDs} is invalid for probability")
         return None
     possibleStates = [[0], [0], [0], [0]]
@@ -194,7 +194,7 @@ def stateProbs(stateIDs, action):
 # in the outer range, due to our assumption that the outer ranges include infinity it must fail on the next time step,
 # so we just consider those states terminal
 def getReward(stateIDs):
-    if stateIDs[0] == 0 or stateIDs[1] in [0, 3] or stateIDs[2] == 0 or stateIDs[3] in [0, 3]:
+    if stateIDs[0] == 0 or stateIDs[1] in [0, len(thetadotStates)-1] or stateIDs[2] == 0 or stateIDs[3] in [0, len(xdotStates)-1]:
         return 0
     else:
         return 1
@@ -217,14 +217,16 @@ def getValSum(probMatrix, Vs, discount=1):
 def iterValue(vs_old):
     delta = 0
     Vs = copy.deepcopy(vs_old)
+    # Policy array; -1 denotes left force, +1 denotes right
+    policy = gen4darray()
 
     # Iterates over every possible state
     # xdots
-    for i in xdotIDs[1:3]:
+    for i in xdotIDs[1:-1]:
         # xs
         for j in xIDs[1:]:
             # theta dots
-            for k in thetadotIDs[1:3]:
+            for k in thetadotIDs[1:-1]:
                 # thetas
                 for l in thetaIDs[1:]:
                     # print(f"{l}, {k}, {j}, {i}")
@@ -239,67 +241,99 @@ def iterValue(vs_old):
                     forwardValSum = getValSum(forwardProb, Vs)
                     backwardValSum = getValSum(backwardProb, Vs)
 
+                    # Determines which action leads to a better value function
+                    if backwardValSum > forwardValSum:
+                        policy[l][k][j][i] = -1
+                    elif forwardValSum > backwardValSum:
+                        policy[l][k][j][i] = 1
+                    else:
+                        policy[l][k][j][i] = 0
+
                     newV = max(forwardValSum, backwardValSum)
                     Vs[l][k][j][i] = newV
                     delta = max(delta, abs(v - newV))
 
-    return Vs, delta
+    return Vs, delta, policy
 
 
 V_s = gen4darray()
 
-
-# Removes all non-terminal states from Vs array for easier viewing
-def trimV(Vs):
-    trimmed = copy.deepcopy(Vs)
-    for i in range(len(Vs)):
-        for j in range(len(Vs[i])):
-            for k in range(len(Vs[i][j])):
-                del trimmed[i][j][k][3]
-                del trimmed[i][j][k][0]
-            del trimmed[i][j][0]
-        del trimmed[i][3]
-        del trimmed[i][0]
-    del trimmed[0]
-
-    return trimmed
-
-
 delta = 1
 counter = 0
+policy = None
 
 while delta > thresh and counter < 100:
-    V_s, delta = iterValue(V_s)
+    V_s, delta, policy = iterValue(V_s)
     counter += 1
     print(f"Iteration {counter}, delta={delta}")
 print(f"After {counter} iterations, reached a delta of {delta}")
 
 
-def getVelocValue(thetaVelID, xVelID, V_s):
-    valueMap = np.array([[V_s[6][thetaVelID][1][xVelID], V_s[6][thetaVelID][2][xVelID], V_s[6][thetaVelID][3][xVelID]],
-                         [V_s[5][thetaVelID][1][xVelID], V_s[5][thetaVelID][2][xVelID], V_s[5][thetaVelID][3][xVelID]],
-                         [V_s[4][thetaVelID][1][xVelID], V_s[4][thetaVelID][2][xVelID], V_s[4][thetaVelID][3][xVelID]],
-                         [V_s[3][thetaVelID][1][xVelID], V_s[3][thetaVelID][2][xVelID], V_s[3][thetaVelID][3][xVelID]],
-                         [V_s[2][thetaVelID][1][xVelID], V_s[2][thetaVelID][2][xVelID], V_s[2][thetaVelID][3][xVelID]],
-                         [V_s[1][thetaVelID][1][xVelID], V_s[1][thetaVelID][2][xVelID], V_s[1][thetaVelID][3][xVelID]]])
+# Generates a 2d array representing the x/theta values for a given theta_dot/x_dot range. Works for V_s and policy
+# (Would also work for probability matrix but that wouldn't be used here)
+def getVelocValue(thetaVelID, xVelID, fourdarr):
+    valueMap = np.array([[fourdarr[1][thetaVelID][1][xVelID], fourdarr[1][thetaVelID][2][xVelID], fourdarr[1][thetaVelID][3][xVelID]],
+                         [fourdarr[2][thetaVelID][1][xVelID], fourdarr[2][thetaVelID][2][xVelID], fourdarr[2][thetaVelID][3][xVelID]],
+                         [fourdarr[3][thetaVelID][1][xVelID], fourdarr[3][thetaVelID][2][xVelID], fourdarr[3][thetaVelID][3][xVelID]],
+                         [fourdarr[4][thetaVelID][1][xVelID], fourdarr[4][thetaVelID][2][xVelID], fourdarr[4][thetaVelID][3][xVelID]],
+                         [fourdarr[5][thetaVelID][1][xVelID], fourdarr[5][thetaVelID][2][xVelID], fourdarr[5][thetaVelID][3][xVelID]],
+                         [fourdarr[6][thetaVelID][1][xVelID], fourdarr[6][thetaVelID][2][xVelID], fourdarr[6][thetaVelID][3][xVelID]]])
     return valueMap
 
 
-map1_1 = getVelocValue(1, 1, V_s)
+# Generates the plot of a given theta dot and x dot range
+def genPlot(thetaD, xD):
+    # Creates the mappings
+    map1_1 = getVelocValue(thetaD, xD, V_s)
+    policymap = getVelocValue(thetaD, xD, policy)
 
-fig, ax = plt.subplots()
+    fig, (ax1, ax2) = plt.subplots(1, 2)
 
-graphX = np.array([-2.4, -0.8, 0.8, 2.4])
-graphY = np.array([-12, -6, -1, 0, 1, 6, 12])
-GX, GY = np.meshgrid(graphX, graphY)
+    # Sets the tick locations to the cutoff between different ranges
+    graphX = np.array([-2.4, -0.8, 0.8, 2.4])
+    graphY = np.array([-12, -6, -1, 0, 1, 6, 12])
+    GX, GY = np.meshgrid(graphX, graphY)
 
-ax.set_xticks(graphX)
-ax.set_yticks(graphY)
+    ax1.set_xticks(graphX)
+    ax1.set_yticks(graphY)
+    ax1.set_xlabel("x value (m)")
+    ax1.set_ylabel("theta value (deg)")
+    # Creates a color map of visually distinct boxes
+    valgraph = ax1.pcolormesh(GX, GY, map1_1, edgecolors='black')
+    fig.colorbar(valgraph)
+    # Adds text labels so the value function can be read
+    # Used https://stackoverflow.com/questions/20998083/show-the-values-in-the-grid-using-matplotlib as a reference
+    for i in range(len(graphX)-1):
+        for j in range(len(graphY) - 1):
+            xpos = (graphX[i] + graphX[i+1])/2
+            ypos = (graphY[j] + graphY[j + 1]) / 2
+            ax1.text(xpos, ypos, '{:0.3f}'.format(map1_1[j][i]), ha='center', va='center',
+                     bbox=dict(boxstyle='round', facecolor='white', edgecolor='0.3'))
 
-plt.pcolormesh(GX, GY, map1_1, edgecolors='black')
-plt.colorbar()
-plt.title("Value Function; -0.5 < x' < 0; -50 < theta' < 0")
-plt.figure()
+    ax1.set_title(f"Value Function; {xdotStates[xD][0]} < x' < {xdotStates[xD][1]}; "
+                  f"{thetadotStates[thetaD][0]} < theta' < {thetadotStates[thetaD][1]}")
 
-plt.show()
-#TODO: Finish plotting setup, add optimal policy tracking
+    # Does the same thing but for the optimal policy plot
+    ax2.set_xticks(graphX)
+    ax2.set_yticks(graphY)
+    ax2.set_xlabel("x value (m)")
+    ax2.set_ylabel("theta value (deg)")
+    polgraph = ax2.pcolormesh(GX, GY, policymap, edgecolors='black', cmap='RdBu', vmin=-1, vmax=1)
+    fig.colorbar(polgraph)
+    # Displays an arrow on the box corresponding to whether the optimal policy is going left or right
+    numToArrow = {-1: "←", 1: "→", 0: "-"}
+    for i in range(len(graphX)-1):
+        for j in range(len(graphY)-1):
+            xpos = (graphX[i] + graphX[i+1])/2
+            ypos = (graphY[j] + graphY[j + 1]) / 2
+            ax2.text(xpos, ypos, numToArrow[policymap[j][i]], ha='center', va='center',
+                     bbox=dict(boxstyle='round', facecolor='white', edgecolor='0.3'))
+    ax2.set_title(f"Optimal policy; {xdotStates[xD][0]} < x' < {xdotStates[xD][1]}; "
+                  f"{thetadotStates[thetaD][0]} < theta' < {thetadotStates[thetaD][1]}")
+    plt.show()
+
+
+genPlot(1, 1)
+genPlot(2, 1)
+genPlot(3, 1)
+genPlot(2, 2)
