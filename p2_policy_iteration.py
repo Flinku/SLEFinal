@@ -22,7 +22,7 @@ thresh = 0.01
 iterLimit = 100
 # Number of evenly spaced splits to look at to determine probability of moving from one state to another
 # This scales run time O(n^4), so increase with caution
-probabilitySplits = 3
+probabilitySplits = 6
 
 # Lists of state ranges
 thetaStates = [["Terminal", "Terminal"], [-12, -6], [-6, -1], [-1, 0], [0, 1], [1, 6], [6, 12]]
