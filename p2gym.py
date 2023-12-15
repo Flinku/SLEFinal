@@ -128,37 +128,39 @@ plt.ylabel('Cumulative Reward')
 plt.show()
 
 # plotting states for one "successful" run (sucks btw)
-success_states = []
-env = gym.make('CartPole-v1', render_mode='human') #render_mode='human'
-s, info = env.reset()
-if info: print(info)
-done = False
-while not done:
-    discrete_s = discretize_state(s) # discretize s
-    a = np.argmax(Q[discrete_s]) # choose action w highest q value
-    sp, reward, done, truncated, info = env.step(a)
-    success_states.append(s)
+def plot_states():
+    success_states = []
+    env = gym.make('CartPole-v1', render_mode='human') #render_mode='human'
+    s, info = env.reset()
     if info: print(info)
-    s = sp
-time_steps = range(len(success_states))
-thetas = [state[2] for state in success_states]  # theta values
-positions = [state[0] for state in success_states]  # x values
-
-# plotting theta as a function of time
-plt.figure(figsize=(12, 6))
-plt.plot(time_steps, thetas)
-plt.title('Theta as a Funtion of Time')
-plt.xlabel('Time Steps')
-plt.ylabel('Theta (Radians)')
-plt.show()
-
-# Plotting x as a function of time
-plt.figure(figsize=(12, 6))
-plt.plot(time_steps, positions)
-plt.title('x as a Function of Time')
-plt.xlabel('Time Steps')
-plt.ylabel('x')
-plt.show()
-
-print("Number of time steps during which the pole does not fail:", 
-      len(success_states))
+    done = False
+    while not done:
+        discrete_s = discretize_state(s) # discretize s
+        a = np.argmax(Q[discrete_s]) # choose action w highest q value
+        sp, reward, done, truncated, info = env.step(a)
+        success_states.append(s)
+        if info: print(info)
+        s = sp
+    time_steps = range(len(success_states))
+    thetas = [state[2] for state in success_states]  # theta values
+    positions = [state[0] for state in success_states]  # x values
+    
+    # plotting theta as a function of time
+    plt.figure(figsize=(12, 6))
+    plt.plot(time_steps, thetas)
+    plt.title('Theta as a Funtion of Time')
+    plt.xlabel('Time Steps')
+    plt.ylabel('Theta (Radians)')
+    plt.show()
+    
+    # Plotting x as a function of time
+    plt.figure(figsize=(12, 6))
+    plt.plot(time_steps, positions)
+    plt.title('x as a Function of Time')
+    plt.xlabel('Time Steps')
+    plt.ylabel('x')
+    plt.show()
+    
+    print("Number of time steps during which the pole does not fail:", 
+          len(success_states))
+plot_states()
