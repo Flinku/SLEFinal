@@ -7,12 +7,12 @@ import matplotlib.pyplot as plt
 env = gym.make('CartPole-v1', render_mode=None)
 
 # vars and stuff
-learning_rate = 0.1
-discount_rate = 0.95
-learning_rate_decay = 0.1
+learning_rate = 1
+discount_rate = 0.75
+learning_rate_decay = 0.0001
 n_iter = 20000
 eps = 1
-eps_decay_rate = 0.99
+eps_decay_rate = 0.99981
 
 # the boxes system 
 theta_bins = [np.radians(-12),np.radians(-6),np.radians(-1), 0, 
@@ -20,6 +20,12 @@ theta_bins = [np.radians(-12),np.radians(-6),np.radians(-1), 0,
 x_bins = [-2.4,-0.8, 0, 0.8,2.4]
 theta_dot_bins = [-np.inf, -np.radians(50), np.radians(50), np.inf]
 x_dot_bins = [-np.inf, -0.5, 0.5, np.inf]
+
+# theta_bins = [(-12),(-6),(-1), 0, 
+#               (1),(6),(12)]
+# x_bins = [-2.4,-0.8, 0, 0.8,2.4]
+# theta_dot_bins = [-np.inf, (50), (50), np.inf]
+# x_dot_bins = [-np.inf, -0.5, 0.5, np.inf]
 
 # init Q
 Q = np.zeros((len(theta_bins) , len(x_bins) , len(theta_dot_bins) , 
@@ -53,6 +59,12 @@ prev_reward = []
 avg_reward = []
 cum_reward = [0]
 
+rand_rate = 0 #for tracking 
+choose_rate = 0
+learning_rates = []
+eps_rates = []
+choices = [0,0]
+
 # begin learning trials
 for iteration in range(n_iter):
     s, info = env.reset()
@@ -63,9 +75,11 @@ for iteration in range(n_iter):
         # epsilon-greedy
         if np.random.rand() < eps:
             a = env.action_space.sample()  # explore rand action
+            choices[0]+=1
         else:
             discrete_s = discretize_state(s) # discretize s
             a = np.argmax(Q[discrete_s]) # choose action w highest q value
+            choices[1]+=1
 
         sp, reward, done, truncated, info = env.step(a)
         if info: print(info)
@@ -82,18 +96,21 @@ for iteration in range(n_iter):
         discrete_s = discretize_state(s)
 
         # update q w bellman   
-        Q[discrete_s + (a,)] = (1-learning_rate) * Q[discrete_s + (a,)] + (
+        Q[discrete_s + (a,)] = Q[discrete_s + (a,)] + (
             learning_rate) * ( reward + 
                 discount_rate * np.max(Q[discrete_sp]) - Q[discrete_s + (a,)]
         )
         s = sp #move to next state
             
     # decay stuffs
-    eps *= eps_decay_rate
-    learning_rate = learning_rate / (1 + iteration * learning_rate_decay)
+    learning_rates.append(learning_rate)
+    eps_rates.append(eps)
+    if eps >.1: eps *= eps_decay_rate
+    if learning_rate > .2:
+        learning_rate = learning_rate / (1 + learning_rate_decay)
     
-    if iteration % (n_iter/10) == 0: #disp and render 10 times
-        print('episode:', iteration, '(',100*iteration/n_iter,'% )')
+    if iteration % (n_iter/10) == 0: #disp and render every num iterations
+        print('episode:', iteration, '(',100*iteration/n_iter,'% done )')
         render_current_best()
         
     if iteration % 10 == 0: #for plotting/metrics
@@ -105,6 +122,7 @@ for iteration in range(n_iter):
 problem is “considered solved when the average reward is
 greater than or equal to 195.0 over 100 consecutive trials.
 '''
+print('100% complete! Running sample simulations with best q-values...')
 for _ in range(3): #three runs with best values (in theory... but it sucks)
     render_current_best()
     time.sleep(.5)
@@ -113,7 +131,7 @@ for _ in range(3): #three runs with best values (in theory... but it sucks)
 plt.figure(figsize=(12, 6))
 plt.plot(avg_reward)
 plt.title('Average Reward per Episode')
-plt.xlabel('Episode')
+plt.xlabel('Episode (10e-1')
 plt.ylabel('Average Reward')
 plt.show()
 
@@ -164,3 +182,12 @@ def plot_states():
     print("Number of time steps during which the pole does not fail:", 
           len(success_states))
 plot_states()
+
+print(choices[0],'random actions taken vs.',choices[1],'selected actions (',
+      round(100*choices[0]/choices[1]), '% random )')
+
+plt.figure(figsize=(12, 6))
+plt.plot(learning_rates, label='Learning rate')
+plt.plot(eps_rates, label='Exploration rate')
+plt.legend()
+plt.show()
