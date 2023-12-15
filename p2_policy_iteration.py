@@ -22,7 +22,7 @@ thresh = 0.01
 iterLimit = 100
 # Number of evenly spaced splits to look at to determine probability of moving from one state to another
 # This scales run time O(n^4), so increase with caution
-probabilitySplits = 8
+probabilitySplits = 3
 
 # Lists of state ranges
 thetaStates = [["Terminal", "Terminal"], [-12, -6], [-6, -1], [-1, 0], [0, 1], [1, 6], [6, 12]]
@@ -137,8 +137,8 @@ def genIncrements(bounds, steps):
 
 
 # Generates a 4d array, used for value function, policy, and probability matrix
-def gen4darray():
-    xdB = [0]*len(xdotStates)
+def gen4darray(base_val=0):
+    xdB = [base_val]*len(xdotStates)
     xB = []
     for i in xStates:
         xB.append(copy.deepcopy(xdB))
@@ -214,13 +214,11 @@ def getValSum(probMatrix, Vs, discount=1):
     return valSum
 
 
-# Takes a 4-D previous value policy array, and outputs a new one and the updated delta
-def iterValue(vs_old):
+# Substep of proceudre 2
+# Takes a 4-D previous value and policy array, and outputs a new value array and the updated delta
+def iterValue(vs_old, policy):
     delta = 0
     Vs = copy.deepcopy(vs_old)
-    # Policy array; -1 denotes left force, +1 denotes right
-    policy = gen4darray()
-
     # Iterates over every possible state
     # xdots
     for i in xdotIDs[1:-1]:
@@ -235,39 +233,78 @@ def iterValue(vs_old):
                     v = Vs[l][k][j][i]
 
                     # Computes the probability of ending up in all possible states given a forward or backward force
-                    forwardProb = stateProbs([l, k, j, i], 10)
-                    backwardProb = stateProbs([l, k, j, i], -10)
-
-                    # Gets the value sums
-                    forwardValSum = getValSum(forwardProb, Vs)
-                    backwardValSum = getValSum(backwardProb, Vs)
-
-                    # Determines which action leads to a better value function
-                    if backwardValSum > forwardValSum:
-                        policy[l][k][j][i] = -1
-                    elif forwardValSum > backwardValSum:
-                        policy[l][k][j][i] = 1
+                    if policy[l][k][j][i] == -1:
+                        prob = stateProbs([l, k, j, i], -10)
                     else:
-                        policy[l][k][j][i] = 0
+                        prob = stateProbs([l, k, j, i], 10)
 
-                    newV = max(forwardValSum, backwardValSum)
-                    Vs[l][k][j][i] = newV
-                    delta = max(delta, abs(v - newV))
+                    # Gets the value sum
+                    valSum = getValSum(prob, Vs)
 
-    return Vs, delta, policy
+                    Vs[l][k][j][i] = valSum
+                    delta = max(delta, abs(v - valSum))
+
+    return Vs, delta
 
 
+# PROCEDURE 2
+def pol_eval(V_s, policy):
+    delta = 1
+    counter = 0
+    Vs = V_s
+    while delta > thresh and counter < iterLimit:
+        Vs, delta = iterValue(Vs, policy)
+        counter += 1
+
+    return Vs
+
+
+# PROCEDURE 3
+# Initializes Value array
 V_s = gen4darray()
+# Initializes policy array to always be 1 (always apply +10 N)
+policy = gen4darray(base_val=1)
+# Inital policy evaluation
+V_s = pol_eval(V_s, policy)
+print("Initial V_s evaluation done")
 
-delta = 1
+
+# Improves the policy, and determines if it's stable
+def PolImprovement(policy, Vs):
+    policyStable = True
+    oldPol = copy.deepcopy(policy)
+    newPol = copy.deepcopy(policy)
+    for i in thetaIDs[1:]:
+        for j in thetadotIDs[1:-1]:
+            for k in xIDs[1:]:
+                for l in xdotIDs[1:-1]:
+                    # Generates probability matrixes for the forward and backward actions
+                    forwardProb = stateProbs([i, j, k, l], 10)
+                    backwardProb = stateProbs([i, j, k, l], -10)
+
+                    forwardVal = getValSum(forwardProb, Vs)
+                    backwardVal = getValSum(backwardProb, Vs)
+
+                    # Determines the optimal policy
+                    if forwardVal >= backwardVal:
+                        newPol[i][j][k][l] = 1
+                    else:
+                        newPol[i][j][k][l] = -1
+
+                    if newPol[i][j][k][l] != oldPol[i][j][k][l]:
+                        policyStable = False
+
+    return newPol, policyStable
+
+
+stable = False
 counter = 0
-policy = None
-
-while delta > thresh and counter < 100:
-    V_s, delta, policy = iterValue(V_s)
+while not stable and counter < 100:
+    policy, stable = PolImprovement(policy, V_s)
     counter += 1
-    print(f"Iteration {counter}, delta={delta}")
-print(f"After {counter} iterations, reached a delta of {delta}")
+    print(f"Iteration {counter} - Stable={stable}")
+    if not stable:
+        V_s = pol_eval(V_s, policy)
 
 
 # Generates a 2d array representing the x/theta values for a given theta_dot/x_dot range. Works for V_s and policy
