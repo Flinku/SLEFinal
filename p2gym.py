@@ -1,18 +1,19 @@
 import numpy as np
 import gym
-import time
 import statistics
 import matplotlib.pyplot as plt
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning) 
 
 env = gym.make('CartPole-v1', render_mode=None)
 
 # vars and stuff
-learning_rate = 1
-discount_rate = 0.75
-learning_rate_decay = 0.0001
+learning_rate = 0.1
+discount_rate = 0.8
+# learning_rate_decay = 0.99998 #unused currently; rate const
 n_iter = 20000
 eps = 1
-eps_decay_rate = 0.99981
+eps_decay_rate = 0.999955
 
 # the boxes system 
 theta_bins = [np.radians(-12),np.radians(-6),np.radians(-1), 0, 
@@ -20,12 +21,6 @@ theta_bins = [np.radians(-12),np.radians(-6),np.radians(-1), 0,
 x_bins = [-2.4,-0.8, 0, 0.8,2.4]
 theta_dot_bins = [-np.inf, -np.radians(50), np.radians(50), np.inf]
 x_dot_bins = [-np.inf, -0.5, 0.5, np.inf]
-
-# theta_bins = [(-12),(-6),(-1), 0, 
-#               (1),(6),(12)]
-# x_bins = [-2.4,-0.8, 0, 0.8,2.4]
-# theta_dot_bins = [-np.inf, (50), (50), np.inf]
-# x_dot_bins = [-np.inf, -0.5, 0.5, np.inf]
 
 # init Q
 Q = np.zeros((len(theta_bins) , len(x_bins) , len(theta_dot_bins) , 
@@ -54,18 +49,16 @@ def render_current_best():
         s = sp
     env = gym.make('CartPole-v1', render_mode=None)
 
-# for tracking reward metrics
+# for tracking metrics
 prev_reward = []
 avg_reward = []
 cum_reward = [0]
 
-rand_rate = 0 #for tracking 
-choose_rate = 0
 learning_rates = []
 eps_rates = []
 choices = [0,0]
 
-# begin learning trials
+# begin trials
 for iteration in range(n_iter):
     s, info = env.reset()
     if info: print(info)
@@ -86,9 +79,9 @@ for iteration in range(n_iter):
             
         # Reward is −1 for the failure, and 0 otherwise, with discounting <-??
         if done: 
-            reward = -1
-        else: 
             reward = 0
+        else: 
+            reward = 1
         prev_reward.append(reward)
 
         # discretize next state and current state
@@ -96,7 +89,7 @@ for iteration in range(n_iter):
         discrete_s = discretize_state(s)
 
         # update q w bellman   
-        Q[discrete_s + (a,)] = Q[discrete_s + (a,)] + (
+        Q[discrete_s + (a,)] = (1-learning_rate) * Q[discrete_s + (a,)] + (
             learning_rate) * ( reward + 
                 discount_rate * np.max(Q[discrete_sp]) - Q[discrete_s + (a,)]
         )
@@ -105,33 +98,24 @@ for iteration in range(n_iter):
     # decay stuffs
     learning_rates.append(learning_rate)
     eps_rates.append(eps)
-    if eps >.1: eps *= eps_decay_rate
-    if learning_rate > .2:
-        learning_rate = learning_rate / (1 + learning_rate_decay)
+    if eps >.5: eps *= eps_decay_rate
     
     if iteration % (n_iter/10) == 0: #disp and render every num iterations
         print('episode:', iteration, '(',100*iteration/n_iter,'% done )')
-        render_current_best()
+        #render_current_best()
         
     if iteration % 10 == 0: #for plotting/metrics
-        avg_reward.append(statistics.fmean(prev_reward))
-        cum_index = round(iteration/10)
+        avg_reward.append(statistics.fmean(prev_reward)) 
         cum_reward.append(sum(prev_reward))
         prev_reward = []
-'''
-problem is “considered solved when the average reward is
-greater than or equal to 195.0 over 100 consecutive trials.
-'''
-print('100% complete! Running sample simulations with best q-values...')
-for _ in range(3): #three runs with best values (in theory... but it sucks)
-    render_current_best()
-    time.sleep(.5)
+        
+print('100% complete!')
     
 # Plotting total reward received per episode
 plt.figure(figsize=(12, 6))
 plt.plot(avg_reward)
 plt.title('Average Reward per Episode')
-plt.xlabel('Episode (10e-1')
+plt.xlabel('Episode (10e-1)')
 plt.ylabel('Average Reward')
 plt.show()
 
@@ -141,11 +125,11 @@ for i in range(len(cum_reward) - 1):
 plt.figure(figsize=(12, 6))
 plt.plot(cum_reward)
 plt.title('Cumulative Reward over Episodes')
-plt.xlabel('Episode')
+plt.xlabel('Episode (10e-1)')
 plt.ylabel('Cumulative Reward')
 plt.show()
 
-# plotting states for one "successful" run (sucks btw)
+# plotting states for one "successful" run
 def plot_states():
     success_states = []
     env = gym.make('CartPole-v1', render_mode='human') #render_mode='human'
@@ -181,13 +165,45 @@ def plot_states():
     
     print("Number of time steps during which the pole does not fail:", 
           len(success_states))
-plot_states()
 
+# print the exploration vs exploitation rate
 print(choices[0],'random actions taken vs.',choices[1],'selected actions (',
-      round(100*choices[0]/choices[1]), '% random )')
+      100*choices[0]//sum(choices), '% random )')
 
 plt.figure(figsize=(12, 6))
 plt.plot(learning_rates, label='Learning rate')
 plt.plot(eps_rates, label='Exploration rate')
 plt.legend()
 plt.show()
+
+'''
+problem is “considered solved when the average reward is
+greater than or equal to 195.0 over 100 consecutive trials.
+'''
+def check_success():
+    test_reward = []
+    for _ in range(100):
+        env = gym.make('CartPole-v1', render_mode=None) #render_mode='human'
+        s, info = env.reset()
+        if info: print(info)
+        done = False
+        episode_reward = 0
+        while not done:
+            discrete_s = discretize_state(s) # discretize s
+            a = np.argmax(Q[discrete_s]) # choose action w highest q value
+            sp, reward, done, truncated, info = env.step(a)
+            if info: print(info)
+            s = sp
+            if done: reward = 0
+            else: reward = 1
+            episode_reward += reward
+        test_reward.append(episode_reward)
+    avg_reward = statistics.fmean(test_reward)
+    if avg_reward >= 195.0: 
+        print('Average reward over 100 episodes:', avg_reward,
+              '...','Success!')
+        return 1
+    else: 
+        print('Average reward over 100 episodes:', avg_reward,
+              '...','Failure :(')
+        return 0
